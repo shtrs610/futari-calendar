@@ -1,0 +1,21 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ふたりカレンダー</title><meta name="referrer" content="no-referrer">
+<style>body{font-family:"Hiragino Maru Gothic ProN",system-ui,sans-serif;color:#3a2a58;background:linear-gradient(#efe5ff,#fff);margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;box-sizing:border-box}
+a{display:inline-block;margin-top:18px;background:linear-gradient(135deg,#b38be8,#7f5bc9);color:#fff;text-decoration:none;padding:12px 22px;border-radius:16px;font-weight:700}</style></head>
+<body><div id="m">ログインしています…</div>
+<script>
+(() => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  history.replaceState(null, "", location.pathname);
+  const m = document.getElementById("m");
+  const bad = (t) => { m.innerHTML = t + '<br><a href="./">ふたりカレンダーに戻る</a>'; };
+  let nonce = null; try { nonce = JSON.parse(localStorage.getItem("fc.nonce")); } catch {}
+  if (!h.get("n") || h.get("n") !== nonce) return bad("ログインの手続きが合いませんでした。<br>もう一度「Googleでログイン」を押してください。");
+  localStorage.removeItem("fc.nonce");
+  const err = h.get("error");
+  if (err === "not_allowed") return bad("このGoogleアカウントでは使えません。<br>ふたりのアカウントでログインしてください。");
+  if (err) return bad("ログインできませんでした（" + err + "）");
+  localStorage.setItem("fc.sess", JSON.stringify({ session: h.get("session"), at: h.get("access_token"), exp: Date.now() + Number(h.get("expires_in") || 3599) * 1000, email: h.get("email") }));
+  location.replace("./");
+})();
+</script></body></html>

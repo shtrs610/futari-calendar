@@ -721,8 +721,9 @@ async function delEv() {
 let feed = [];
 const KIND = { comment: "コメントしました", photo: "写真をつけました", add: "予定を追加しました", edit: "予定を変更しました", del: "予定を削除しました" };
 async function loadFeed() { try { feed = (await api("/api/feed")).feed || []; drawFeed(); } catch {} }
+const mySeen = () => Math.max(LS.get("seen", 0), members.find((x) => x.email === me)?.seen || 0);
 function drawFeed() {
-  const seen = LS.get("seen", 0), unread = feed.filter((f) => f.email !== me && f.at > seen).length, b = $("badge");
+  const seen = mySeen(), unread = feed.filter((f) => f.email !== me && f.at > seen).length, b = $("badge");
   b.textContent = unread; b.classList.toggle("on", unread > 0);
   if (navigator.setAppBadge) (unread ? navigator.setAppBadge(unread) : navigator.clearAppBadge?.())?.catch?.(() => {});
   $("feed").innerHTML = feed.length ? feed.map((f, i) => { const r = emailRole(f.email);
@@ -734,7 +735,7 @@ async function jump(d, k, kind) { if (!d) return; tab(0); const dt = parseD(d); 
 function tab(n) {
   $("tabCal").classList.toggle("on", n === 0); $("tabNote").classList.toggle("on", n === 1);
   $("notice").classList.toggle("on", n === 1); $("fab").classList.toggle("hide", n === 1); closeAll();
-  if (n === 1) { drawFeed(); loadFeed().then(() => { LS.set("seen", Date.now()); setTimeout(drawFeed, 1500); }); }
+  if (n === 1) { drawFeed(); loadFeed().then(() => { const t = Date.now(); LS.set("seen", t); const mm = members.find((x) => x.email === me); if (mm) mm.seen = t; api("/api/seen", { method: "POST", json: { at: t } }).catch(() => {}); setTimeout(drawFeed, 1500); }); }
 }
 function goToday() { tab(0); today = new Date(); const m = new Date(today.getFullYear(), today.getMonth(), 1);
   if (ym(m) !== ym(cur)) show(m, m > cur ? 1 : -1).then(() => openDay(today)); else openDay(today); }
@@ -760,10 +761,60 @@ function openSettings() {
    ${others.length ? `<label style="margin-top:18px">ほかのカレンダー（自分だけに出ます）</label>${others.map((c) => `<div class="cal-row"><div class="nm"><i style="background:${esc(c.backgroundColor || "#ccc")}"></i>${esc(c.summaryOverride || c.summary)}</div>${seg(c, [["xme", "表示する"], ["xhide", "表示しない"]])}</div>`).join("")}` : ""}
    ${theirs.length ? `<label style="margin-top:18px">${esc(roleName(myRole === "p" ? "m" : "p"))}のカレンダー（相手が「ふたりに」にしたもの）</label>${theirs.map((c) => `<div class="cal-row"><div class="nm"><i style="background:${esc(c.backgroundColor || "#ccc")}"></i>${esc(c.summaryOverride || c.summary)}</div></div>`).join("")}` : ""}
    <p style="margin:18px 0 0"><button class="btn wide" id="setSave" onclick="saveSettings()">保存する</button></p>
+   <label style="margin-top:22px">🔔 iPhoneへの通知</label><div id="pushBox"><p class="hint">確認中…</p></div>
    <p style="text-align:center;margin:20px 0 4px"><button class="btn ghost" onclick="logout()">この端末からログアウト</button></p>
-   <p class="hint" style="text-align:center">${esc(me || "")}<br>ふたりカレンダー v1.1.0</p>`;
-  openSheet("setSheet");
+   <p class="hint" style="text-align:center">${esc(me || "")}<br>ふたりカレンダー v1.2.0</p>`;
+  openSheet("setSheet"); drawPush();
 }
+/* ---------- 通知 ---------- */
+const pushOK = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const b64uToU8 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+async function drawPush() {
+  const box = $("pushBox"); if (!box) return;
+  const mm = members.find((x) => x.email === me) || {}; let pref = {}; try { pref = JSON.parse(mm.notify || "{}"); } catch {}
+  const prefHtml = `<div class="hint" style="margin-top:8px">通知する内容</div>${[["comment", "💬 コメント"], ["photo", "📷 写真"], ["event", "📅 予定の追加・変更・削除"]].map(([k, t]) =>
+    `<label class="toggle" style="margin-top:6px"><input type="checkbox" ${pref[k] === false ? "" : "checked"} onchange="setPref('${k}', this.checked)"> ${t}</label>`).join("")}`;
+  if (!pushOK()) { box.innerHTML = /iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone
+      ? `<p class="hint">通知は、<b>ホーム画面のアイコンから開いたとき</b>だけ使えます。Safariの共有ボタン→「ホーム画面に追加」をしてから、アイコンで開いてください。</p>`
+      : `<p class="hint">この端末・ブラウザでは通知が使えません（iPhoneは iOS 16.4 以降が必要です）。</p>`; return; }
+  const reg = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(r, 6000))]);
+  if (!reg) { box.innerHTML = `<p class="hint">通知の準備ができませんでした。アプリを開き直してください。</p>`; return; }
+  const sub = await reg.pushManager.getSubscription();
+  if (Notification.permission === "denied") { box.innerHTML = `<p class="hint">通知が「許可しない」になっています。iPhoneの<b>設定 → 通知 → ふたりカレンダー</b>で「通知を許可」をオンにしてください。</p>` + prefHtml; return; }
+  box.innerHTML = sub
+    ? `<p style="margin:4px 0 8px;font-weight:800;color:#2e8b57">✓ この端末で通知を受け取っています</p><div class="acts"><button onclick="testPush(this)">ためしに通知を送る</button><button class="del" onclick="pushOff()">この端末はやめる</button></div>` + prefHtml
+    : `<p class="hint">相手が予定を入れたり、コメントや写真をつけたりすると、iPhoneが鳴ってお知らせします。アイコンにも数字が付きます。</p><button class="btn wide" onclick="pushOn(this)">🔔 この端末で通知を受け取る</button>` + prefHtml;
+}
+async function pushOn(b) {
+  b.disabled = true;
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { toast("通知が許可されませんでした"); drawPush(); return; }
+    const { key } = await api("/api/push/key"); if (!key) throw new Error("サーバーの準備ができていません");
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToU8(key) });
+    await api("/api/push/sub", { method: "POST", json: sub.toJSON() });
+    hearts(b, "🔔"); toast("通知をオンにしました 🔔"); drawPush();
+  } catch (e) { toast("通知をオンにできませんでした（" + e.message + "）", 4000); b.disabled = false; }
+}
+async function pushOff() {
+  const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+  if (sub) { try { await api("/api/push/unsub", { method: "POST", json: { endpoint: sub.endpoint } }); } catch {} await sub.unsubscribe(); }
+  toast("この端末の通知をやめました"); drawPush();
+}
+async function testPush(b) { b.disabled = true;
+  try { const r = await api("/api/push/test", { method: "POST" }); toast(r.sent?.some((x) => x >= 200 && x < 300) ? "送りました。数秒で届きます" : "送れませんでした（" + (r.sent || []).join(",") + "）", 4000); }
+  catch (e) { toast("送れませんでした（" + e.message + "）"); } setTimeout(() => (b.disabled = false), 3000); }
+async function setPref(k, v) {
+  const mm = members.find((x) => x.email === me); let pref = {}; try { pref = JSON.parse(mm.notify || "{}"); } catch {}
+  pref[k] = v; mm.notify = JSON.stringify(pref);
+  try { await api("/api/notify", { method: "POST", json: pref }); } catch { toast("保存できませんでした"); }
+}
+// 通知を押して開いたとき
+let pendingJump = null;
+navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.open) jump(e.data.open.d, e.data.open.k, "open"); });
+(() => { const q = new URLSearchParams(location.search); if (q.get("d")) pendingJump = { d: q.get("d"), k: q.get("k") || "" }; })();
+
 function setVis(b, v) { const s = b.parentNode; s.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); draftVis[s.dataset.id] = v; }
 let pickedRole = null;
 function pickRole(b, r) { b.parentNode.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); pickedRole = r; const n = $("setName") || $("firstName"); if (n && (!n.value || n.value === "とと" || n.value === "かか")) n.value = r === "p" ? "とと" : "かか"; }
@@ -816,6 +867,7 @@ async function boot(refresh) {
     if (refresh) Object.keys(evCache).forEach((k) => delete evCache[k]);
     await show(cur);
     loadFeed();
+    if (pendingJump) { const j = pendingJump; pendingJump = null; history.replaceState({ fc: 1 }, "", location.pathname); jump(j.d, j.k, "open"); }
     return true;
   } finally { busy(false); }
 }
@@ -831,7 +883,7 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
   const now = new Date(); if (key(now) !== key(today)) { today = now; }
   loadMonth(cur, true).then(() => render()).catch(() => {}); loadFeed(); } });
 setInterval(() => { if (document.visibilityState === "visible" && sess && myRole) loadFeed(); }, 60000);
-if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
 // 画面のはしからスワイプしても前のページ（ログイン画面など）に戻らないようにする。代わりに開いている画面を閉じる
 history.replaceState({ fc: 0 }, ""); history.pushState({ fc: 1 }, "");
 addEventListener("popstate", () => { history.pushState({ fc: 1 }, "");

@@ -381,17 +381,30 @@ function computeShown() {
     const owner = c.accessRole === "owner";
     if (owner) {
       const v = visOf(me, c.id) || "me";
-      if (v !== "hide") shown.push({ id: c.id, name: c.summaryOverride || c.summary, w: myRole, self: v === "me", own: true });
+      if (v !== "hide") shown.push({ id: c.id, name: c.summaryOverride || c.summary, w: myRole, self: v === "me", own: true, color: c.backgroundColor });
     } else {
       const pv = pEmail ? visOf(pEmail, c.id) : undefined;
-      if (pv === "both") shown.push({ id: c.id, name: c.summaryOverride || c.summary, w: myRole === "p" ? "m" : "p", self: false, own: false, partner: true });
+      if (pv === "both") shown.push({ id: c.id, name: c.summaryOverride || c.summary, w: myRole === "p" ? "m" : "p", self: false, own: false, partner: true, color: c.backgroundColor });
       else if (pv === "me" || pv === "hide") continue; // 相手が「自分だけ」にしている
-      else { const v = visOf(me, c.id) || "xme"; if (v === "xme") shown.push({ id: c.id, name: c.summaryOverride || c.summary, w: myRole, self: true, own: false }); }
+      else { const v = visOf(me, c.id) || "xme"; if (v === "xme") shown.push({ id: c.id, name: c.summaryOverride || c.summary, w: myRole, self: true, own: false, color: c.backgroundColor }); }
     }
   }
 }
 function range(month) { const s = new Date(month); s.setDate(1 - month.getDay()); return [s, addDays(s, 42)]; }
 const ym = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+
+/* ---------- 色（Googleカレンダーと同じ色／ふたりの色） ---------- */
+let colorMode = LS.get("colorMode", "google");
+let evPal = LS.get("evPal", {});
+const PCOL = { p: "#4f95dd", m: "#9061d6" };
+function ink(hex) { const h = (hex || "#999").replace("#", ""); const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.substr(i, 2), 16) / 255);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 0.62 ? "#2b2140" : "#fff"; }
+function chipStyle(e) { if (colorMode !== "google") return "";
+  return e.self ? `background:#fff;color:${e.col};box-shadow:inset 0 0 0 1.2px ${e.col}` : `background:${e.col};color:${ink(e.col)};box-shadow:inset 2.5px 0 0 ${PCOL[e.w]}`; }
+function softStyle(e) { return colorMode === "google" ? `background:${e.col}26;box-shadow:inset 4px 0 0 ${e.col}` : ""; }
+async function loadPalette() { try { const j = await gapi("/colors?fields=event"); evPal = Object.fromEntries(Object.entries(j.event || {}).map(([k, v]) => [k, v.background])); LS.set("evPal", evPal); } catch {} }
+function setColorMode(b, v) { b.parentNode.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); colorMode = v; LS.set("colorMode", v);
+  render(); }
 
 function norm(e, cal) {
   const allDay = !!e.start?.date;
@@ -403,13 +416,13 @@ function norm(e, cal) {
   if (!days.length) days.push(key(s));
   return { k: cal.id + "|" + e.id, id: e.id, cal: cal.id, calName: cal.name, ttl: e.summary || (cal.own ? "（タイトルなし）" : "予定あり"), allDay, s: +s, e: +en,
     d: key(s), days, t: allDay ? "終日" : hm(s), te: allDay ? "" : hm(en), w: cal.w, self: cal.self, own: cal.own, desc: e.description || "", loc: e.location || "",
-    rec: !!e.recurringEventId, rem: e.reminders || null };
+    rec: !!e.recurringEventId, rem: e.reminders || null, col: (e.colorId && evPal[e.colorId]) || cal.color || "#9e9e9e", colorId: e.colorId || "" };
 }
 async function listEvents(calId, s, en) {
   const out = []; let pt = "";
   do {
     const q = new URLSearchParams({ timeMin: s.toISOString(), timeMax: en.toISOString(), singleEvents: "true", orderBy: "startTime", maxResults: "250",
-      fields: "items(id,summary,start,end,description,location,recurringEventId,reminders,eventType),nextPageToken" });
+      fields: "items(id,summary,start,end,description,location,recurringEventId,reminders,eventType,colorId),nextPageToken" });
     if (pt) q.set("pageToken", pt);
     const j = await gapi(`/calendars/${encodeURIComponent(calId)}/events?` + q);
     out.push(...(j.items || [])); pt = j.nextPageToken || "";
@@ -457,7 +470,7 @@ function render(anim, dir) {
     const cls = "day" + (d.getMonth() !== cur.getMonth() ? " out" : "") + (d.getDay() === 0 ? " sun" : "") + (d.getDay() === 6 ? " sat" : "") + (hol ? " hd" : "") + (k === tk ? " today" : "") + (sel === k ? " sel" : "");
     const room = fitN - (hol ? 1 : 0), n = evs.length > room ? Math.max(1, room - 1) : evs.length;
     html += `<div class="${cls}" data-d="${k}"><span class="n">${d.getDate()}</span><span class="rk${rk === "大安" ? " dai" : rk === "仏滅" ? " butsu" : ""}">${rk}</span>${k === tk ? `<span class="tdy">今日</span>` : ""}${hol ? `<div class="hol">${esc(hol)}</div>` : ""}` +
-      evs.slice(0, n).map((e, j) => `<div class="chip ${e.w}${e.self ? " self" : ""}${meta.c[e.k] ? " c" : ""}${newKey === e.k ? " new" : ""}" data-r="${kref(e.k)}" style="animation-delay:${anim ? (i * 8 + j * 30) : 0}ms">${esc(e.ttl)}</div>`).join("") +
+      evs.slice(0, n).map((e, j) => `<div class="chip ${e.w}${e.self ? " self" : ""}${meta.c[e.k] ? " c" : ""}${newKey === e.k ? " new" : ""}" data-r="${kref(e.k)}" style="${chipStyle(e)};animation-delay:${anim ? (i * 8 + j * 30) : 0}ms">${esc(e.ttl)}</div>`).join("") +
       (evs.length > n ? `<div class="more">+${evs.length - n}</div>` : "") + `</div>`;
   }
   g.innerHTML = html; g.classList.toggle("anim", !!anim); newKey = null;
@@ -569,7 +582,7 @@ function openDay(d) {
   const hol = holidays[sel];
   $("dayTitle").innerHTML = `${d.getMonth()+1}月${d.getDate()}日（${W[d.getDay()]}）<span class="rk-t">${Rokuyo.get(d)}</span>${hol ? `<span class="hol-t">${esc(hol)}</span>` : ""}`;
   const list = eventsOn(sel);
-  $("dayList").innerHTML = (list.length ? list.map((e, i) => `<div class="ev ${e.w}${e.self ? " self" : ""}" style="animation-delay:${i * 50}ms" onclick="openEv(REF[${kref(e.k)}])">
+  $("dayList").innerHTML = (list.length ? list.map((e, i) => `<div class="ev ${e.w}${e.self ? " self" : ""}" style="${softStyle(e)};animation-delay:${i * 50}ms" onclick="openEv(REF[${kref(e.k)}])">
      <div class="t">${e.t}</div><div style="min-width:0"><div class="who">${roleIcon(e.w)} ${esc(roleName(e.w))}${e.self ? "（自分だけ）" : ""}</div><div class="ttl">${esc(e.ttl)}</div>
      ${meta.c[e.k] || meta.p[e.k] ? `<div class="cm">${meta.c[e.k] ? `💬 ${meta.c[e.k]}` : ""} ${meta.p[e.k] ? `📷 ${meta.p[e.k]}` : ""}</div>` : ""}</div></div>`).join("")
     : `<p class="empty">予定はありません</p>`) + `<p style="text-align:center;margin:12px 0 0"><button class="btn" onclick="openEdit(null,'${sel}')">＋ この日に予定を入れる</button></p>`;
@@ -587,7 +600,7 @@ function drawEv(loading) {
   const e = curEv, d = parseD(e.d);
   const when = e.allDay ? (e.days.length > 1 ? `終日（${jd(e.days[0])}〜${jd(e.days[e.days.length - 1])}）` : "終日") : `${e.t}〜${e.te}`;
   $("evBody").innerHTML = `
-  <div class="detail-top ${e.w}"><div class="who">${roleIcon(e.w)} ${esc(roleName(e.w))}の予定 <span class="tag">${esc(e.calName)}${e.self ? "・自分だけ" : ""}</span></div>
+  <div class="detail-top ${e.w}" style="${softStyle(e)}"><div class="who">${roleIcon(e.w)} ${esc(roleName(e.w))}の予定 <span class="tag">${esc(e.calName)}${e.self ? "・自分だけ" : ""}</span></div>
    <div class="ttl">${esc(e.ttl)}</div>
    <div class="row">🗓 ${d.getMonth()+1}月${d.getDate()}日（${W[d.getDay()]}）<span class="rk-t">${Rokuyo.get(d)}</span></div>
    <div class="row">⏰ ${when}</div>
@@ -755,6 +768,8 @@ function openSettings() {
   $("setBody").innerHTML = `<h2>⚙️ 設定</h2>
    <label>あなたは</label><div class="who-pick" id="setWho"><button class="p ${myRole === "p" ? "on" : ""}" onclick="pickRole(this,'p')">🔵 とと</button><button class="m ${myRole === "m" ? "on" : ""}" onclick="pickRole(this,'m')">🌸 かか</button></div>
    <label>表示する名前</label><input class="f" id="setName" value="${esc(roleName(myRole))}" maxlength="10">
+   <label style="margin-top:18px">予定の色（この端末）</label><div class="seg"><button class="${colorMode === "google" ? "on" : ""}" onclick="setColorMode(this,'google')">Googleカレンダーの色</button><button class="${colorMode !== "google" ? "on" : ""}" onclick="setColorMode(this,'two')">ふたりの色（青・紫）</button></div>
+   <p class="hint">Googleカレンダーの色のときは、予定の左はしの線で 🔵${esc(roleName("p"))}／🌸${esc(roleName("m"))} がわかります。</p>
    <label style="margin-top:18px">自分のカレンダー</label><p class="hint">「ふたりに」…相手のアプリにも出ます／「自分だけ」…自分のアプリだけに出ます</p>
    ${own.map((c) => `<div class="cal-row"><div class="nm"><i style="background:${esc(c.backgroundColor || "#ccc")}"></i>${esc(c.summaryOverride || c.summary)}</div>${seg(c, [["both", "ふたりに"], ["me", "自分だけ"], ["hide", "表示しない"]])}
      ${draftVis[c.id] === "both" && pSees(c.id) === false ? `<div class="warn">⚠️ 相手のアプリではまだ見えていません。Googleカレンダーで相手と共有してください。</div>` : ""}</div>`).join("") || `<p class="hint">ありません</p>`}
@@ -763,7 +778,7 @@ function openSettings() {
    <p style="margin:18px 0 0"><button class="btn wide" id="setSave" onclick="saveSettings()">保存する</button></p>
    <label style="margin-top:22px">🔔 iPhoneへの通知</label><div id="pushBox"><p class="hint">確認中…</p></div>
    <p style="text-align:center;margin:20px 0 4px"><button class="btn ghost" onclick="logout()">この端末からログアウト</button></p>
-   <p class="hint" style="text-align:center">${esc(me || "")}<br>ふたりカレンダー v1.2.1</p>`;
+   <p class="hint" style="text-align:center">${esc(me || "")}<br>ふたりカレンダー v1.3.0</p>`;
   openSheet("setSheet"); drawPush();
 }
 /* ---------- 通知 ---------- */
@@ -856,6 +871,7 @@ async function boot(refresh) {
   try {
     const [cl, bt] = await Promise.all([gapi("/users/me/calendarList?minAccessRole=reader&maxResults=250&fields=items(id,summary,summaryOverride,accessRole,backgroundColor,primary)"), api("/api/boot")]);
     calList = cl.items || []; LS.set("calList", calList);
+    if (!Object.keys(evPal).length) await loadPalette();
     me = bt.me; members = bt.members; calsRows = bt.cals;
     const mine = members.find((x) => x.email === me);
     if (!mine) { firstRun(); return false; }

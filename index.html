@@ -34,7 +34,8 @@ header h1 .ttl-in.go-l{animation:ttlL .45s var(--spring)}header h1 .ttl-in.go-r{
 @keyframes ttlL{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
 @keyframes ttlR{from{transform:translateX(-40px);opacity:0}to{transform:none;opacity:1}}
 .arrow{background:rgba(255,255,255,.78);border:0;color:#6b49b0;font-size:20px;font-weight:800;width:38px;height:38px;border-radius:50%;flex:0 0 38px}
-.gear{position:absolute;top:calc(8px + env(safe-area-inset-top));right:10px;background:rgba(255,255,255,.6);border:0;width:30px;height:30px;border-radius:50%;font-size:15px}
+.gear{position:absolute;right:8px;top:-3px;background:#f3ecff;border:0;width:28px;height:28px;border-radius:50%;font-size:15px;line-height:28px;padding:0;z-index:2}
+.gear.spin{animation:spin 1.2s linear infinite}
 .sync{position:absolute;top:calc(10px + env(safe-area-inset-top));left:12px;font-size:11px;background:rgba(255,255,255,.75);border-radius:10px;padding:2px 8px;opacity:0;transition:opacity .3s;color:#6b49b0;font-weight:700}
 .sync.on{opacity:1}
 .sync.on::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;border:2px solid #b38be8;border-top-color:transparent;margin-right:5px;vertical-align:-1px;animation:spin .8s linear infinite}
@@ -71,7 +72,7 @@ header h1 .ttl-in.go-l{animation:ttlL .45s var(--spring)}header h1 .ttl-in.go-r{
 .chip.ghost{position:fixed;z-index:60;pointer-events:none;transform:scale(1.15) rotate(-3deg);box-shadow:0 8px 20px rgba(80,40,140,.35);font-size:12px;height:20px;line-height:20px;padding:0 8px;transition:none}
 .grid.dragging .day.drop{background:rgba(155,111,214,.25);border-radius:10px;box-shadow:inset 0 0 0 2px #9b6fd6}
 .wm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:230px;font-weight:800;color:rgba(155,111,214,.09);pointer-events:none;letter-spacing:-8px;line-height:1}
-.backnow{position:absolute;right:10px;top:2px;border:0;background:#9b6fd6;color:#fff;font-size:12px;font-weight:800;border-radius:12px;padding:3px 10px;transform:scale(0);transition:transform .35s var(--spring);z-index:2}
+.backnow{position:absolute;left:10px;top:1px;border:0;background:#9b6fd6;color:#fff;font-size:12px;font-weight:800;border-radius:12px;padding:3px 10px;transform:scale(0);transition:transform .35s var(--spring);z-index:2}
 .backnow.on{transform:scale(1)}
 .toast.act{pointer-events:auto}
 .toast .undo{border:0;background:#fff;color:#6b49b0;border-radius:10px;padding:3px 10px;margin-left:8px;font-weight:800}
@@ -209,13 +210,11 @@ textarea.f{min-height:70px;resize:vertical}
 </style></head><body>
 <div class="phone" id="app">
  <header>
-  <span class="sync" id="sync">同期中</span>
   <button class="arrow" onclick="move(-1)" aria-label="前の月">‹</button>
   <h1 id="title"></h1>
   <button class="arrow" onclick="move(1)" aria-label="次の月">›</button>
-  <button class="gear" onclick="openSettings()" aria-label="設定">⚙️</button>
  </header>
- <div class="legend" style="position:relative"><button class="backnow" id="backNow" onclick="backNow()">今月へ</button><span><i class="dot p"></i><span id="lgP">とと</span></span><span><i class="dot m"></i><span id="lgM">かか</span></span><span class="cml">コメント</span></div>
+ <div class="legend" style="position:relative"><button class="backnow" id="backNow" onclick="backNow()">今月へ</button><button class="gear" id="gear" onclick="openSettings()" aria-label="設定">⚙️</button><span><i class="dot p"></i><span id="lgP">とと</span></span><span><i class="dot m"></i><span id="lgM">かか</span></span><span class="cml">コメント</span></div>
  <div class="week"><div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div></div>
  <div class="gridwrap" id="gridwrap"><div class="wm" id="wm"></div><div class="grid" id="grid"></div></div>
  <button class="fab" id="fab" onclick="openEdit()">＋</button>
@@ -312,7 +311,7 @@ function hearts(el, emoji = "💜") {
   if (navigator.vibrate) navigator.vibrate(12);
 }
 let syncN = 0;
-const busy = (on) => { syncN += on ? 1 : -1; $("sync").classList.toggle("on", syncN > 0); };
+const busy = (on) => { syncN += on ? 1 : -1; $("gear").classList.toggle("spin", syncN > 0); };
 
 /* ---------- ログイン ---------- */
 let sess = LS.get("sess", null); // {session, at, exp, email}
@@ -778,7 +777,7 @@ function openSettings() {
    <p style="margin:18px 0 0"><button class="btn wide" id="setSave" onclick="saveSettings()">保存する</button></p>
    <label style="margin-top:22px">🔔 iPhoneへの通知</label><div id="pushBox"><p class="hint">確認中…</p></div>
    <p style="text-align:center;margin:20px 0 4px"><button class="btn ghost" onclick="logout()">この端末からログアウト</button></p>
-   <p class="hint" style="text-align:center">${esc(me || "")}<br>ふたりカレンダー v1.3.0</p>`;
+   <p class="hint" style="text-align:center">${esc(me || "")}<br>ふたりカレンダー v1.3.1</p>`;
   openSheet("setSheet"); drawPush();
 }
 /* ---------- 通知 ---------- */
